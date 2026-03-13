@@ -551,49 +551,134 @@ sub main::mht_preprocess_line_continuation {
     #          \    def   # continuation that wants much whitespace
     #                     # Yields: "abc    def"
     #
-    my ($file,$arrayref,$start,$stop) = @_;
-    $start //= 0;
-    $stop //= $#{$arrayref};
-    my $line_start;
-    foreach my $index ($start..$stop) {
-	my $linenum = $index + 1;		# For diagnostic messages, etc.
-	next if ($arrayref->[$index] =~ /^(#.*|\s*)$/);		# Ignore blank lines and whole line comments.
-	$arrayref->[$index] =~ s/\s*#.*//;	# Remove trailing comments. This is what bin/mh does, so we have to match.
-	$arrayref->[$index] =~ s/\s*$//;	# Remove trailing whitespace.
-        my $line = $arrayref->[$index];
+    
+    # Process the calling args.
+    my %parms;
+    if (@_/2 == int(@_/2) and $_[0] =~ /^(file|arrayref|start|stop)$/) {
+        # Using named parms.
+        %parms = @_;
+    }
+    else {
+        # Using positional parms.
+        ($parms{file},$parms{arrayref},$parms{start},$parms{stop}) = @_;
+    }
 
-        # Skip blank lines.
+    # Set the defaults and validate.
+    unless (ref($parms{arrayref}) eq 'ARRAY') {
+        &main::print_log("Error: In calling main::mht_preprocess_line_continuation, the supplied array "
+            . "reference does not point to an array. Processing aborted.");
+        return undef;
+    }
+    $parms{start} //= 0;
+    $parms{stop} //= $#{$parms{arrayref}};
+
+    # Loop through the lines, identifying primary and continuation lines.
+    my $line_start;
+    foreach my $index ($parms{start}..$parms{stop}) {
+        my $linenum = $index + 1;		# For diagnostic messages, etc.
+        next if ($parms{arrayref}->[$index] =~ /^(#.*|\s*)$/);		# Ignore blank lines and whole line comments.
+        $parms{arrayref}->[$index] =~ s/\s*#.*//;	# Remove trailing comments. This is what bin/mh does, so we have to match.
+        $parms{arrayref}->[$index] =~ s/\s*$//;	# Remove trailing whitespace.
+        my $line = $parms{arrayref}->[$index];
+
+        # Skip blank and comment lines.
         next if ($line =~ /^\s*$/);	# Comment or blank line. No action.
 
-	# Is this a primary line or a continuation line?
+        # Is this a primary line or a continuation line?
         if ($line =~ /^\S/) {
-            # It's a primary line.
+            # It's a primary line. Note its location.
             $line_start = $index;	# Remember where it starts.
         }
         else {			
-            # It's a continuation line.
+            # It's a continuation line. Append it to the preceding primary line.
             $line =~ s/^\s*//;		# Remove the leading whitespace.
  
             # Now check for a now-leading \ -- indicates not to insert whitespace
             if ($line =~ /^\\(.*)/) {
-		# Leading backslash. Remove it, and don't prepend a space.
-		$line = $1;
+                # Leading backslash. Remove it, and don't prepend a space.
+	        $line = $1;
             }
             else {
                 # No leading backslash. Insert one leading space before appending to
                 # the primary line (or a prior continuation line).
-		$line = " $line";
+        	$line = " $line";
             }
 
             # Append this to primary line so far.
-            $arrayref->[$line_start] .= $line;
+            $parms{arrayref}->[$line_start] .= $line;
 
             # And delete the continuation line by making it blank.
-            $arrayref->[$index] = '';	# Replace the continuation line with a blank line.
+            $parms{arrayref}->[$index] = '';	# Replace the continuation line with a blank line.
 
         }   # End continuation-line processing.
     }
 }
+
+sub main::mht_preprocess_symbol_substitution {
+#
+# mht_preprocess_symbol_substitution: All users to create shorthand symbols that
+# can be used to hold frequently used strings. Then look for those symbols and
+# replace them with the supplied string.
+#
+# Example:
+#   Define %FR%=apps/zwave-js-ui/Family_Room		# Define %FR%.
+#   Now use %FR% in four different lines. Less typing, fewer errors, one place to update if needed.
+#   MQTT_LOCALITEM,		family_room_ceiling,	Family_Room_Ceiling,	mqttserver,	light,	%FR%_Ceiling/+/+,	0,	Family_Room_Ceiling,	state:power,	cmnd:power
+#   MQTT_LOCALITEM,		family_room_lamps,	Family_Room_Lamps,	mqttserver,	switch,	%FR%_Lamps/+/+, 	0,	Family_Room_Lamps,	state:power,	cmnd:power
+#   MQTT_LOCALITEM,		family_room_TV,		Family_Room_TV,		mqttserver,	switch,	%FR%_TV/+/+, 		0,	Family_Room_TV,		state:power,	cmnd:power
+#   MQTT_LOCALITEM,		family_room_Amp,	Family_Room_Amp,	mqttserver,	switch,	%FR%_Amp/+/+, 		0,	Family_Room_Amp,	state:power,	cmnd:power
+#
+# Defined symbols only apply to the file they're in. Leading/trailing % in symbol names are of no 
+# significance, they're just a way to to avoid colliding with naturally occuring strings.
+# Symbol names starting and ending with two underscores are reserved for the caller of this routine.
+
+#   
+    # Process the calling args.
+    my %parms;
+    if (@_/2 == int(@_/2) and $_[0] =~ /^(file|arrayref|start|stop|dictref)$/) {
+        # Using named parms.
+        %parms = @_;
+    }
+    else {
+        # Using positional parms.
+        ($parms{file},$parms{arrayref},$parms{start},$parms{stop}) = @_;
+    }
+
+    # Set the defaults and validate.
+    unless (ref($parms{arrayref}) eq 'ARRAY') {
+        &main::print_log("Error: In calling main::mht_preprocess_line_continuation, the supplied array "
+            . "reference does not point to an array. Processing aborted.");
+        return undef;
+    }
+    $parms{start} //= 0;
+    $parms{stop} //= $#{$parms{arrayref}};
+
+    my %Symbols;
+    # Copy the caller's dictionary of provided symbols if there is one.
+    %Symbols = %{$parms{dictref}} if (defined($parms{dictref}));
+    my $linenum = $parms{start};
+    foreach my $line (@{$parms{arrayref}}[$parms{start}..$parms{stop}]) {
+        $linenum++;
+        next if ($line =~ /^\s*(#.*)?$/);	# Ignore blank lines and comments.
+        if ($line =~ /^define\s+([^=\s]+)=(.*?)\s*$/i) {
+            # A new definition.
+            my($symbol,$value) = ($1, $2);
+            if ($symbol =~ /^__.*__$/) {
+        	&main::print_log("Error: file $parms{file} line $linenum: attempt to assign value to reserved symbol - ignored");
+            }
+            else {
+                $Symbols{$symbol}=$value;
+            }
+            $line='';	# Delete definition statement, so it doesn't get processed in mhp.
+        }
+        else {
+            foreach (sort(keys(%Symbols))) {
+                $line =~ s/$_/$Symbols{$_}/g;
+            }
+        }
+    }
+}
+
 
 sub main::my_use {
     my ($module) = @_;

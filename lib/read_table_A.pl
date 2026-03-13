@@ -2224,8 +2224,8 @@ sub read_table_preprocess_A {
 # details on line continuation.
 #
     my($file,$arrayref,$start,$stop) = @_;
-    main::mht_preprocess_line_continuation($file, $arrayref, $start, $stop);
-    #main::mht_preprocess_symbol_substitution($file, $arrayref, $start, $stop);
+    main::mht_preprocess_line_continuation(  $file, $arrayref, $start, $stop);
+    main::mht_preprocess_symbol_substitution($file, $arrayref, $start, $stop);
 }
 
 #This is called inside each definition, this is using SCENE_BUILD as an example:
